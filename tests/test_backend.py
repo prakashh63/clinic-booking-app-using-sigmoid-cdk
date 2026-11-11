@@ -151,7 +151,7 @@ def test_cancel_frees_the_slot_and_queues_an_email(aws) -> None:
     assert aws.app.cancel_booking(event, None)["statusCode"] == 404
 
 
-def test_staff_page_shortens_names_and_hides_codes(aws) -> None:
+def test_public_schedule_shows_times_without_patient_data(aws) -> None:
     today = datetime.now(IST).date().isoformat()
     aws.ddb.items[(today, "10:00")] = {
         "booking_date": {"S": today},
@@ -162,11 +162,19 @@ def test_staff_page_shortens_names_and_hides_codes(aws) -> None:
         "service": {"S": "dental"},
     }
     result = aws.app.staff_today({}, None)
-    body = json.loads(result["body"])
-    assert body["count"] == 1
-    assert body["bookings"][0]["name"] == "Priya S."
-    assert "AAAAAAAAAA" not in result["body"]
-    assert "priya@example.com" not in result["body"]
+    assert result["statusCode"] == 200
+    assert result["headers"]["Cache-Control"] == "no-store"
+    payload = json.loads(result["body"])
+    for secret in ("patient_name", "patient_email", "Priya", "AAAAAAAAAA", "dental", "service"):
+        assert secret not in result["body"]
+    if datetime.now(IST).date().weekday() < 5:
+        assert payload["count"] == 1
+        assert payload["first_appointment"] == "10:00"
+        assert len(payload["bookings"]) == 14
+        booked = next(row for row in payload["bookings"] if row["time"] == "10:00")
+        assert booked["status"] == "Booked"
+    else:
+        assert payload["closed"] is True
 
 
 def test_confirmation_email_is_sent_once(aws) -> None:
@@ -250,8 +258,11 @@ def test_configured_public_holiday_is_closed(aws, monkeypatch) -> None:
     assert book(aws, date=date)["statusCode"] == 400
 
 
-def test_staff_endpoint_requires_authentication_on_aws(aws, monkeypatch) -> None:
+def test_public_schedule_is_available_on_aws_without_pii(aws, monkeypatch) -> None:
     monkeypatch.setenv("APP_MODE", "aws")
     result = aws.app.staff_today({}, None)
-    assert result["statusCode"] == 403
-    assert "booking" not in result["body"].lower()
+    assert result["statusCode"] == 200
+    body = json.loads(result["body"])
+    assert "bookings" in body
+    for key in ("patient", "email", "code", "service"):
+        assert key not in result["body"].lower()
