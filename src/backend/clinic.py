@@ -300,26 +300,45 @@ def cancel_booking(event, context):
 
 
 def staff_today(event, context):
-    # Staff sign-in has not been implemented. Never expose a staff endpoint on AWS.
-    if os.environ.get("APP_MODE", "aws") != "local":
-        return _reply(403, {"error": "Staff access requires authentication and is disabled in AWS."})
-    day = _now().date().isoformat()
-    items = _day_items(day)
-    return _reply(
-        200,
-        {
+    """Public, anonymous view of today's schedule (no staff authentication needed).
+
+    This route is accessible through CloudFront. Never include patient names,
+    e-mail addresses, booking references or services in its response.
+    """
+    today = _now().date()
+    day = today.isoformat()
+    reason = _closed_reason(today)
+    if reason:
+        result = {
+            "date": day, "count": 0, "first_appointment": None,
+            "closed": True, "reason": reason, "bookings": [],
+        }
+    else:
+        # Read the day's bookings from DynamoDB, but return ONLY slot occupancy.
+        items = _day_items(day)
+        booked = {item["slot_time"] for item in items}
+        first = min(booked) if booked else None
+        now = _now()
+        result = {
             "date": day,
-            "count": len(items),
+            "count": len(booked),
+            "first_appointment": first,
+            "closed": False,
             "bookings": [
                 {
-                    "time": item["slot_time"],
-                    "name": _short_name(item["patient_name"]),  # staff page has no login
-                    "service": _label(item["service"]),
+                    "time": slot,
+                    "status": (
+                        "Booked" if slot in booked else
+                        "Past" if _slot_start(today, slot) <= now else
+                        "Available"
+                    ),
                 }
-                for item in items
+                for slot in SLOT_TIMES
             ],
-        },
-    )
+        }
+    response = _reply(200, result)
+    response["headers"]["Cache-Control"] = "no-store"
+    return response
 
 
 # ---------- background handlers ----------

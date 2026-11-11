@@ -211,23 +211,31 @@ async function cancelAppointment() {
   } else toast(result.data.error || "Unable to cancel the booking.", true);
 }
 async function loadStaff() {
-  const body = el("staff-rows"), message = el("staff-message"); body.replaceChildren();
-  message.textContent = "Loading schedule…";
-  const result = await request("/api/staff/today");
+  const body = el("staff-rows"), message = el("staff-message");
+  body.replaceChildren();
+  message.textContent = "Loading today's schedule…";
+  message.className = "notice";
+  el("staff-count").textContent = "—";
+  el("staff-first").textContent = "—";
+  const result = await request("/api/staff/today", { cache: "no-store" });
   if (result.status !== 200) {
-    message.className = "notice";
-    message.textContent = result.status === 403 ?
-      "Staff access is disabled in AWS until staff authentication is implemented. This is a local learning preview only." :
-      result.data.error || "Could not load the staff schedule.";
+    message.textContent = result.data.error || "Could not load the schedule.";
     return;
   }
   el("staff-count").textContent = String(result.data.count);
-  el("staff-first").textContent = result.data.bookings.length ? result.data.bookings[0].time : "—";
-  if (!result.data.bookings.length) { message.textContent = "No appointments are scheduled today."; return; }
-  message.textContent = "";
-  for (const row of result.data.bookings) {
+  el("staff-first").textContent = result.data.first_appointment || "—";
+  if (result.data.closed) {
+    message.textContent = result.data.reason || "The clinic is closed today.";
+    return;
+  }
+  if (!result.data.bookings.length) {
+    message.textContent = "No appointment slots are available today.";
+    return;
+  }
+  message.textContent = "Times shown in IST. Patient details are private.";
+  for (const slot of result.data.bookings) {
     const tr = make("tr");
-    for (const value of [row.time, row.name, row.service]) tr.append(make("td", "", String(value)));
+    for (const value of [slot.time, slot.status]) tr.append(make("td", "", String(value)));
     body.append(tr);
   }
 }
