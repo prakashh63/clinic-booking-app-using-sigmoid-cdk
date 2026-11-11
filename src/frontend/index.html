@@ -19,7 +19,7 @@
     <nav class="navigation" aria-label="Main navigation">
       <button id="nav-book" class="nav-link active" type="button" aria-current="page">Book a visit</button>
       <button id="nav-find" class="nav-link" type="button">My appointment</button>
-      <button id="nav-staff" class="nav-link" type="button">Today's schedule</button>
+      <button id="nav-staff" class="nav-link" type="button">Clinic schedule</button>
     </nav>
     <div class="header-actions"><span class="help-label">Need assistance?</span><span class="help-value">Reception desk</span></div>
   </div>
@@ -60,7 +60,33 @@
   <div id="booking-success" class="surface success-panel" hidden><div class="success-icon">✓</div><span class="overline">APPOINTMENT CONFIRMED</span><h2>You're all booked.</h2><p id="success-summary">Your visit has been reserved.</p><div class="reference"><span>Your booking reference</span><strong id="success-code"></strong><button id="copy-code" type="button" class="text-button">Copy code</button></div><p class="hint">Keep your code safe. You'll need it to review or cancel your appointment. E-mail delivery is separate and may take a little time.</p><button id="book-again" class="button primary" type="button">Book another visit</button></div>
 </section>
 <section id="find" class="page-section" hidden aria-labelledby="find-title"><div class="inner-header"><span class="overline">YOUR APPOINTMENT</span><h1 id="find-title">Review your booking.</h1><p>Use the reference from your confirmation. Keep it private—it allows access to the booking.</p></div><div class="narrow-col"><div class="surface step-card"><div class="form-field"><label for="booking-code">10-character booking reference</label><div class="lookup-row"><input id="booking-code" maxlength="10" autocomplete="off" autocapitalize="characters" placeholder="e.g. 7A9C12B43D"><button id="find-button" type="button" class="button primary">Find booking</button></div></div><div id="find-message" class="notice" role="status" hidden></div></div><div id="booking-found" class="surface step-card" hidden><div class="found-top"><h3>Appointment details</h3><span class="status-pill" id="found-status"></span></div><dl class="found-grid"><div><dt>Patient</dt><dd id="found-name"></dd></div><div><dt>Service</dt><dd id="found-service"></dd></div><div><dt>Date</dt><dd id="found-date"></dd></div><div><dt>Time</dt><dd id="found-time"></dd></div></dl><button id="cancel-button" type="button" class="button danger">Cancel appointment</button></div></div></section>
-<section id="staff" class="page-section" hidden aria-labelledby="staff-title"><div class="inner-header"><span class="overline">LIVE AVAILABILITY</span><h1 id="staff-title">Today's clinic schedule.</h1><p>View available and booked times for today. Patient names and medical details are never shown publicly.</p></div><div class="stats-row"><div class="surface metric"><span>Appointments today</span><strong id="staff-count">—</strong></div><div class="surface metric"><span>First appointment</span><strong id="staff-first">—</strong></div><div class="surface metric"><span>Clinic hours</span><strong>09–17</strong></div></div><div class="surface staff-table-wrap"><div class="table-heading"><h3>Today's schedule</h3><button id="staff-refresh" type="button" class="button outline">Refresh</button></div><div class="table-scroll"><table><thead><tr><th>Time</th><th>Status</th></tr></thead><tbody id="staff-rows"></tbody></table></div><p id="staff-message" class="notice" role="status"></p></div></section>
+<section id="staff" class="page-section" hidden aria-labelledby="staff-title">
+  <div class="inner-header">
+    <span class="overline">LIVE AVAILABILITY</span>
+    <h1 id="staff-title">Today's clinic schedule.</h1>
+    <p>View available and booked times for today or tomorrow. Patient names and medical details are never shown publicly.</p>
+    <p id="staff-date" class="hint" aria-live="polite"></p>
+  </div>
+  <div class="stats-row">
+    <div class="surface metric"><span id="staff-count-label">Appointments today</span><strong id="staff-count">—</strong></div>
+    <div class="surface metric"><span>First appointment</span><strong id="staff-first">—</strong></div>
+    <div class="surface metric"><span>Clinic hours</span><strong>09–17</strong></div>
+  </div>
+  <div class="surface staff-table-wrap">
+    <div class="table-heading">
+      <h3 id="staff-table-title">Today's schedule</h3>
+      <div class="schedule-actions" role="group" aria-label="Choose schedule day">
+        <button id="staff-today" type="button" class="button primary" aria-pressed="true">Today</button>
+        <button id="staff-tomorrow" type="button" class="button outline" aria-pressed="false">Tomorrow</button>
+        <button id="staff-refresh" type="button" class="button outline">Refresh</button>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table><thead><tr><th>Time</th><th>Status</th></tr></thead><tbody id="staff-rows"></tbody></table>
+    </div>
+    <p id="staff-message" class="notice" role="status"></p>
+  </div>
+</section>
 </main>
 <footer class="footer"><div class="container footer-content"><span>✚ &nbsp;CareSlot Clinic <small>© 2026 · Demonstration application</small></span><span>Monday–Friday · 09:00–17:00 IST</span><a id="developer-link" href="/debug" target="_blank" rel="noopener" hidden>Open local developer inspector ↗</a></div></footer>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

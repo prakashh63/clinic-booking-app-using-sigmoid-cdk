@@ -9,6 +9,8 @@ const SERVICE_CATALOG = {
 const selection = { service: "checkup", date: "", time: "" };
 let activeCode = null;
 let latestSlotRequest = 0;
+let staffDay = "today";
+let latestStaffRequest = 0;
 let toastTimeout;
 
 function indiaToday() {
@@ -210,30 +212,75 @@ async function cancelAppointment() {
     loadSlots();
   } else toast(result.data.error || "Unable to cancel the booking.", true);
 }
+function chooseStaffDay(day) {
+  if (day !== "today" && day !== "tomorrow") return;
+  staffDay = day;
+  for (const option of ["today", "tomorrow"]) {
+    const button = el(`staff-${option}`);
+    const active = option === day;
+    button.setAttribute("aria-pressed", String(active));
+    button.classList.toggle("primary", active);
+    button.classList.toggle("outline", !active);
+  }
+  const label = day === "today" ? "Today's" : "Tomorrow's";
+  el("staff-title").textContent = `${label} clinic schedule.`;
+  el("staff-table-title").textContent = `${label} schedule`;
+  el("staff-count-label").textContent = `Appointments ${day}`;
+  loadStaff();
+}
 async function loadStaff() {
+  const requestId = ++latestStaffRequest;
   const body = el("staff-rows"), message = el("staff-message");
+  const requestedDay = staffDay;
+  const date = requestedDay === "tomorrow" ? addDays(indiaToday(), 1) : indiaToday();
+  el("staff-date").textContent = friendlyDate(date);
   body.replaceChildren();
-  message.textContent = "Loading today's schedule…";
+  message.textContent = `Loading ${requestedDay}'s schedule…`;
   message.className = "notice";
   el("staff-count").textContent = "—";
   el("staff-first").textContent = "—";
-  const result = await request("/api/staff/today", { cache: "no-store" });
+
+  // Reuse the existing appointment-availability API for tomorrow.
+  // All personal information stays on the backend.
+  const path = requestedDay === "today"
+    ? "/api/staff/today"
+    : `/api/slots?date=${encodeURIComponent(date)}`;
+  const result = await request(path, { cache: "no-store" });
+  if (requestId !== latestStaffRequest) return; // Ignore stale responses after switching days.
   if (result.status !== 200) {
     message.textContent = result.data.error || "Could not load the schedule.";
+    message.className = "notice error";
     return;
   }
-  el("staff-count").textContent = String(result.data.count);
-  el("staff-first").textContent = result.data.first_appointment || "—";
-  if (result.data.closed) {
-    message.textContent = result.data.reason || "The clinic is closed today.";
+
+  let schedule = result.data;
+  if (requestedDay === "tomorrow") {
+    const slots = Array.isArray(result.data.slots) ? result.data.slots : [];
+    const booked = slots.filter((slot) => !slot.free);
+    schedule = {
+      closed: result.data.closed,
+      reason: result.data.reason,
+      count: booked.length,
+      first_appointment: booked.length ? booked[0].time : null,
+      bookings: slots.map((slot) => ({
+        time: slot.time,
+        status: slot.free ? "Available" : "Booked",
+      })),
+    };
+  }
+
+  el("staff-count").textContent = String(schedule.count);
+  el("staff-first").textContent = schedule.first_appointment || "—";
+  if (schedule.closed) {
+    message.textContent = schedule.reason || "The clinic is closed on this date.";
     return;
   }
-  if (!result.data.bookings.length) {
-    message.textContent = "No appointment slots are available today.";
+  if (!schedule.bookings.length) {
+    message.textContent = "No appointment slots are available on this date.";
     return;
   }
   message.textContent = "Times shown in IST. Patient details are private.";
-  for (const slot of result.data.bookings) {
+  for (const slot of schedule.bookings) {
     const tr = make("tr");
     for (const value of [slot.time, slot.status]) tr.append(make("td", "", String(value)));
     body.append(tr);
@@ -265,6 +312,8 @@ function init() {
   el("find-button").addEventListener("click", lookupAppointment);
   el("cancel-button").addEventListener("click", cancelAppointment);
   el("staff-refresh").addEventListener("click", loadStaff);
+  el("staff-today").addEventListener("click", () => chooseStaffDay("today"));
+  el("staff-tomorrow").addEventListener("click", () => chooseStaffDay("tomorrow"));
   el("nav-book").addEventListener("click", () => openSection("book"));
   el("nav-find").addEventListener("click", () => openSection("find"));
   el("nav-staff").addEventListener("click", () => openSection("staff"));
