@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#123d3d">
+<meta name="description" content="CareSlot Clinic appointment booking: select a service, choose a weekday appointment, and manage your visit.">
+<title>Book your visit | CareSlot Clinic</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/styles.css">
+<script src="/assets/app.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to booking</a>
+<div class="announcement"><div class="container announcement-inner"><span><span class="status-dot"></span> Appointments available Monday–Friday</span><span>09:00–17:00 IST · Closed Saturday &amp; Sunday</span></div></div>
+<header class="site-header">
+  <div class="container header-content">
+    <a class="brand" href="/" aria-label="CareSlot Clinic homepage"><span class="brand-mark" aria-hidden="true">✚</span><span>CareSlot <strong>Clinic</strong><small>Good care, thoughtfully scheduled.</small></span></a>
+    <nav class="navigation" aria-label="Main navigation">
+      <button id="nav-book" class="nav-link active" type="button" aria-current="page">Book a visit</button>
+      <button id="nav-find" class="nav-link" type="button">My appointment</button>
+      <button id="nav-staff" class="nav-link" type="button">Staff preview</button>
+    </nav>
+    <div class="header-actions"><span class="help-label">Need assistance?</span><span class="help-value">Reception desk</span></div>
+  </div>
+</header>
+<main id="main" class="container main-content">
+<section id="book" class="page-section" aria-labelledby="hero-title">
+  <div class="hero">
+    <div class="hero-copy">
+      <span class="eyebrow"><span class="eyebrow-icon">✳</span> YOUR HEALTH, YOUR TIME</span>
+      <h1 id="hero-title">A simpler way to <em>book your care.</em></h1>
+      <p>Choose a service, find an available weekday slot, and complete your booking in a few easy steps.</p>
+      <div class="hero-points"><span><b class="mini-check">✓</b> Clear availability</span><span><b class="mini-check">✓</b> E-mail confirmation</span><span><b class="mini-check">✓</b> Manage your visit</span></div>
+    </div>
+    <div class="hero-visual" aria-hidden="true">
+      <div class="visual-circle circle-one"></div><div class="visual-circle circle-two"></div>
+      <div class="mini-calendar"><div class="mc-top"><span>YOUR NEXT VISIT</span><span class="mc-spark">✦</span></div><div class="mc-icon">✚</div><strong>Time for better care</strong><small>We’ll be here when you need us.</small><div class="mc-bottom"><span>MON – FRI</span><b>09:00 – 17:00</b></div></div>
+    </div>
+  </div>
+  <div class="section-heading"><div><span class="overline">APPOINTMENTS</span><h2>Schedule your visit</h2><p>Three simple steps to get started.</p></div><div class="steps-indicator"><span class="indicator active">1</span><span class="indicator-line"></span><span class="indicator">2</span><span class="indicator-line"></span><span class="indicator">3</span></div></div>
+  <div id="booking-flow" class="booking-grid">
+    <div class="booking-form">
+      <section class="surface step-card" aria-labelledby="service-heading"><div class="step-heading"><span class="step-number">01</span><div><h3 id="service-heading">What brings you in?</h3><p>Choose the type of appointment you need.</p></div></div><div id="services" class="service-grid"></div></section>
+      <section class="surface step-card" aria-labelledby="time-heading"><div class="step-heading"><span class="step-number">02</span><div><h3 id="time-heading">Choose a date &amp; time</h3><p>Bookings are open Monday–Friday, 9 AM–5 PM.</p></div></div>
+        <div class="field-heading"><span>Next available days</span><span class="subtle-pill">IST · UTC+05:30</span></div>
+        <div id="quick-days" class="quick-days" aria-label="Select an appointment day"></div>
+        <div class="date-field"><label for="date">Or choose another date</label><input id="date" type="date" aria-describedby="date-help"><span id="date-help" class="hint">Weekends, configured holidays and dates beyond 60 days are unavailable.</span></div>
+        <div class="slot-label"><span>Available times</span><span class="availability-key"><i></i> Available <i class="unavailable-key"></i> Booked / unavailable</span></div>
+        <div id="slots" aria-live="polite"></div><div id="slot-message" class="notice" role="status"></div>
+        <div class="hours-strip"><span>◷</span><div><b>Clinic hours</b><small>09:00–17:00 · Lunch break 13:00–14:00 · Closed weekends</small></div></div>
+      </section>
+      <section class="surface step-card" aria-labelledby="details-heading"><div class="step-heading"><span class="step-number">03</span><div><h3 id="details-heading">Your contact details</h3><p>We’ll use these only for your appointment and notifications.</p></div></div>
+        <div class="input-grid"><div class="form-field"><label for="name">Full name <span>*</span></label><input id="name" name="name" type="text" placeholder="e.g. Priya Sharma" maxlength="60" autocomplete="name" required></div><div class="form-field"><label for="email">E-mail address <span>*</span></label><input id="email" name="email" type="email" placeholder="you@example.com" maxlength="120" autocomplete="email" required></div></div>
+        <div class="privacy-hint"><span aria-hidden="true">♧</span> We never ask for your medical history or payment information through this demo.</div>
+      </section>
+    </div>
+    <aside class="sidebar"><div class="surface summary-card"><div class="summary-heading"><span class="summary-icon" aria-hidden="true">▦</span><div><span class="overline">REVIEW YOUR VISIT</span><h3>Appointment summary</h3></div></div><dl class="summary-details"><div><dt>Service</dt><dd id="summary-service">General check-up</dd></div><div><dt>Date</dt><dd id="summary-date">Choose a day</dd></div><div><dt>Time</dt><dd id="summary-time">Choose a time</dd></div><div><dt>Patient</dt><dd id="summary-name">Your name</dd></div></dl><div class="summary-rule"></div><div class="summary-footer"><span class="summary-caption">No payment required to reserve</span><button id="book-button" class="button primary full-width" type="button" disabled>Confirm appointment <span aria-hidden="true">→</span></button><p>By booking, you agree to receive appointment-related e-mail updates.</p></div></div><div class="support-card"><span class="support-icon">☏</span><div><b>Questions before booking?</b><p>Our reception team can help you choose a suitable visit.</p></div></div></aside>
+  </div>
+  <div id="booking-success" class="surface success-panel" hidden><div class="success-icon">✓</div><span class="overline">APPOINTMENT CONFIRMED</span><h2>You're all booked.</h2><p id="success-summary">Your visit has been reserved.</p><div class="reference"><span>Your booking reference</span><strong id="success-code"></strong><button id="copy-code" type="button" class="text-button">Copy code</button></div><p class="hint">Keep your code safe. You'll need it to review or cancel your appointment. E-mail delivery is separate and may take a little time.</p><button id="book-again" class="button primary" type="button">Book another visit</button></div>
+</section>
+<section id="find" class="page-section" hidden aria-labelledby="find-title"><div class="inner-header"><span class="overline">YOUR APPOINTMENT</span><h1 id="find-title">Review your booking.</h1><p>Use the reference from your confirmation. Keep it private—it allows access to the booking.</p></div><div class="narrow-col"><div class="surface step-card"><div class="form-field"><label for="booking-code">10-character booking reference</label><div class="lookup-row"><input id="booking-code" maxlength="10" autocomplete="off" autocapitalize="characters" placeholder="e.g. 7A9C12B43D"><button id="find-button" type="button" class="button primary">Find booking</button></div></div><div id="find-message" class="notice" role="status" hidden></div></div><div id="booking-found" class="surface step-card" hidden><div class="found-top"><h3>Appointment details</h3><span class="status-pill" id="found-status"></span></div><dl class="found-grid"><div><dt>Patient</dt><dd id="found-name"></dd></div><div><dt>Service</dt><dd id="found-service"></dd></div><div><dt>Date</dt><dd id="found-date"></dd></div><div><dt>Time</dt><dd id="found-time"></dd></div></dl><button id="cancel-button" type="button" class="button danger">Cancel appointment</button></div></div></section>
+<section id="staff" class="page-section" hidden aria-labelledby="staff-title"><div class="inner-header"><span class="overline">LOCAL LEARNING PREVIEW</span><h1 id="staff-title">Today's clinic schedule.</h1><p>Available in local demo mode only. Real staff access requires authentication before using this application with patient data.</p></div><div class="stats-row"><div class="surface metric"><span>Appointments today</span><strong id="staff-count">—</strong></div><div class="surface metric"><span>First appointment</span><strong id="staff-first">—</strong></div><div class="surface metric"><span>Clinic hours</span><strong>09–17</strong></div></div><div class="surface staff-table-wrap"><div class="table-heading"><h3>Today's schedule</h3><button id="staff-refresh" type="button" class="button outline">Refresh</button></div><div class="table-scroll"><table><thead><tr><th>Time</th><th>Patient</th><th>Service</th></tr></thead><tbody id="staff-rows"></tbody></table></div><p id="staff-message" class="notice" role="status"></p></div></section>
+</main>
+<footer class="footer"><div class="container footer-content"><span>✚ &nbsp;CareSlot Clinic <small>© 2026 · Demonstration application</small></span><span>Monday–Friday · 09:00–17:00 IST</span><a id="developer-link" href="/debug" target="_blank" rel="noopener" hidden>Open local developer inspector ↗</a></div></footer>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

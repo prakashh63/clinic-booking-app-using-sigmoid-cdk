@@ -1,0 +1,1 @@
+"""Consumer application source package."""

@@ -1,0 +1,35 @@
+# CareSlot Clinic - persistent DynamoDB Local for developer use.
+# Works with the existing tools/local_server.py (DynamoDB endpoint 127.0.0.1:8001).
+# IMPORTANT: the named volume is the same as in the previous configuration.
+# Never run `docker compose down -v` unless intentionally deleting local bookings.
+services:
+  dynamodb-volume-init:
+    image: busybox:1.36.1
+    user: "0:0"
+    command:
+      - sh
+      - -ec
+      - |
+        mkdir -p /data
+        chown -R 1000:1000 /data
+        chmod -R u+rwX /data
+    volumes:
+      - clinic_dynamodb_data:/data
+    restart: "no"
+
+  dynamodb-local:
+    image: amazon/dynamodb-local:3.3.2
+    user: "1000:1000"
+    working_dir: /home/dynamodblocal
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "./data"]
+    depends_on:
+      dynamodb-volume-init:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - clinic_dynamodb_data:/home/dynamodblocal/data
+    restart: unless-stopped
+
+volumes:
+  clinic_dynamodb_data:
