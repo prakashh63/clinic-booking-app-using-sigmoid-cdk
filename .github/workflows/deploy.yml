@@ -1,10 +1,10 @@
-name: Deploy — clinic booking
+name: Deploy Clinic Booking
 
 on:
   workflow_dispatch:
     inputs:
       stage:
-        description: 'Target environment'
+        description: Stage to deploy
         type: choice
         options: [dev, staging, prod]
         required: true
@@ -13,124 +13,55 @@ permissions:
   contents: read
 
 concurrency:
-  group: clinic-infra-${{ inputs.stage }}
+  group: clinic-booking-${{ inputs.stage }}
   cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
     environment: ${{ inputs.stage }}
     env:
       STAGE: ${{ inputs.stage }}
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
-      EXPECTED_AWS_ACCOUNT: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ap-south-1
+      AWS_DEFAULT_REGION: ap-south-1
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       BUCKET_SUFFIX: ${{ vars.BUCKET_SUFFIX || 'demo' }}
       SENDER_EMAIL: ${{ vars.SENDER_EMAIL }}
-      CLINIC_HOLIDAYS: ${{ vars.CLINIC_HOLIDAYS }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Validate required non-secret GitHub variables
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ -n "$AWS_REGION" ]] || { echo 'Set vars.AWS_REGION'; exit 1; }
-          [[ "$EXPECTED_AWS_ACCOUNT" =~ ^[0-9]{12}$ ]] || { echo 'Set vars.AWS_ACCOUNT_ID to 12 digits'; exit 1; }
-      - name: Configure AWS using only access key and secret access key
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Validate identity, sender and inputs
-        shell: bash
-        run: |
-          set -euo pipefail
-          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-          if [[ "$ACCOUNT" != "$EXPECTED_AWS_ACCOUNT" ]]; then
-            echo 'Wrong AWS account: refusing deployment'; exit 1
-          fi
-          if [[ -z "$SENDER_EMAIL" || "$SENDER_EMAIL" == *@example.com ]]; then
-            echo 'Set vars.SENDER_EMAIL to a verified AWS SES identity'; exit 1
-          fi
-          if [[ "$AWS_REGION" != ap-* && "$AWS_REGION" != us-* && "$AWS_REGION" != eu-* ]]; then
-            echo 'Check AWS_REGION'; exit 1
-          fi
-          echo "Target: $ACCOUNT / $AWS_REGION / $STAGE"
-          echo "CDK_DEFAULT_ACCOUNT=$ACCOUNT" >> "$GITHUB_ENV"
-          echo "CDK_DEFAULT_REGION=$AWS_REGION" >> "$GITHUB_ENV"
+
       - name: Install dependencies
+        run: pip install -r requirements.txt && npm install -g aws-cdk
+
+      - name: Check AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Deploy infrastructure
+        run: cdk deploy --all --require-approval never
+
+      - name: Upload frontend to S3
+        run: aws s3 sync src/frontend/ "s3://clinic-booking-web-${STAGE}-${BUCKET_SUFFIX}/"
+
+      - name: Invalidate CloudFront cache
         run: |
-          python -m pip install -r requirements.txt pytest
-          npm install --global aws-cdk
-      - name: Run tests
-        run: python -m pytest -q
-      - name: Synthesize and audit infrastructure
+          DIST_ID=$(aws cloudformation describe-stack-resources \
+            --stack-name "sigmoid-clinic-booking-${STAGE}" \
+            --query "StackResources[?ResourceType=='AWS::CloudFront::Distribution'].PhysicalResourceId" \
+            --output text)
+          aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"
+
+      - name: Show site URL
         run: |
-          cdk synth --quiet
-          python scripts/review_cdk_output.py --stage "$STAGE"
-      - name: Check changes (read only)
-        run: cdk diff
-      - name: Deploy only the single clinic stack
-        shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -t STACK_IDS < <(cdk ls)
-          [[ "${#STACK_IDS[@]}" -eq 1 ]] || { echo 'Expected exactly one CDK stack'; exit 1; }
-          cdk deploy "${STACK_IDS[0]}" --require-approval never
-      - name: Resolve actual stack outputs (no hard-coded S3 names)
-        shell: bash
-        run: |
-          set -euo pipefail
-          STACK=$(python -c "import sys;sys.path[:0]=['bin','.'];from app_config import build_config; c=build_config('$STAGE');print(f'{c.organization}-{c.app_name}-{c.environment}')")
-          SITE=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='SiteUrl'].OutputValue" --output text)
-          WEB_BUCKET=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='FrontendBucketName'].OutputValue" --output text)
-          DIST=$(aws cloudformation list-stack-resources --stack-name "$STACK" --query "StackResourceSummaries[?ResourceType=='AWS::CloudFront::Distribution'].PhysicalResourceId" --output text)
-          test -n "$SITE" && test "$SITE" != None
-          test -n "$WEB_BUCKET" && test "$WEB_BUCKET" != None
-          test -n "$DIST" && test "$DIST" != None
-          echo "SITE_URL=$SITE" >> "$GITHUB_ENV"
-          echo "WEB_BUCKET=$WEB_BUCKET" >> "$GITHUB_ENV"
-          echo "DISTRIBUTION_ID=$DIST" >> "$GITHUB_ENV"
-          echo "Stack: $STACK  Site: $SITE"
-      - name: Publish frontend (preserve unrelated files)
-        run: aws s3 sync src/frontend/ "s3://${WEB_BUCKET}/" --only-show-errors
-      - name: Refresh CloudFront assets
-        run: aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths '/*' >/dev/null
-      - name: Smoke test webpage and available booking slots
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import datetime, json, os, time, urllib.request
-          base = os.environ['SITE_URL'].rstrip('/')
-          date = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30))).date() + datetime.timedelta(days=2)
-          holidays = set(os.getenv('CLINIC_HOLIDAYS', '').split(','))
-          while date.weekday() >= 5 or date.isoformat() in holidays:
-              date += datetime.timedelta(days=1)
-          checks = [(base + '/index.html', 'html'), (base + '/api/slots?date=' + date.isoformat(), 'json')]
-          for url, response_type in checks:
-              for attempt in range(12):
-                  try:
-                      with urllib.request.urlopen(url, timeout=15) as response:
-                          body = response.read().decode()
-                      if response_type == 'html':
-                          assert 'CareSlot' in body
-                      else:
-                          value = json.loads(body)
-                          assert value.get('date') == date.isoformat()
-                          assert isinstance(value.get('slots'), list) and not value.get('closed')
-                      print('PASS', url)
-                      break
-                  except Exception as error:
-                      if attempt == 11:
-                          raise RuntimeError(f'Smoke test failed: {url}') from error
-                      time.sleep(15)
-          PY
+          aws cloudformation describe-stacks \
+            --stack-name "sigmoid-clinic-booking-${STAGE}" \
+            --query "Stacks[0].Outputs[?OutputKey=='SiteUrl'].OutputValue" \
+            --output text

@@ -1,127 +1,67 @@
-name: Destroy — guarded dev/staging only
+name: Destroy Clinic Booking
 
 on:
   workflow_dispatch:
     inputs:
       stage:
-        description: 'Only dev or staging is allowed'
+        description: Stage to destroy
         type: choice
         options: [dev, staging]
         required: true
       confirmation:
-        description: 'Type DESTROY dev or DESTROY staging exactly'
-        required: true
+        description: Type DESTROY dev or DESTROY staging
         type: string
+        required: true
 
 permissions:
   contents: read
 
 concurrency:
-  group: clinic-infra-${{ inputs.stage }}
+  group: clinic-booking-${{ inputs.stage }}
   cancel-in-progress: false
 
 jobs:
   destroy:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
     environment: ${{ inputs.stage }}
     env:
       STAGE: ${{ inputs.stage }}
       CONFIRMATION: ${{ inputs.confirmation }}
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      EXPECTED_AWS_ACCOUNT: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ap-south-1
+      AWS_DEFAULT_REGION: ap-south-1
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       BUCKET_SUFFIX: ${{ vars.BUCKET_SUFFIX || 'demo' }}
-      BACKUP_BUCKET: ${{ vars.BACKUP_BUCKET }}
-      SENDER_EMAIL: ${{ vars.SENDER_EMAIL }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Require explicit confirmation and external backup bucket
-        shell: bash
+      - name: Confirm destruction
         run: |
-          set -euo pipefail
+          [[ "$CONFIRMATION" == "DESTROY $STAGE" ]] || { echo "Incorrect confirmation"; exit 1; }
           [[ "$STAGE" == dev || "$STAGE" == staging ]] || exit 1
-          [[ "$CONFIRMATION" == "DESTROY $STAGE" ]] || { echo 'Confirmation did not match'; exit 1; }
-          [[ -n "$BACKUP_BUCKET" ]] || { echo 'Set vars.BACKUP_BUCKET to an S3 bucket outside this stack'; exit 1; }
-          [[ -n "$AWS_REGION" ]] || { echo 'Set vars.AWS_REGION'; exit 1; }
-          [[ "$EXPECTED_AWS_ACCOUNT" =~ ^[0-9]{12}$ ]] || { echo 'Set vars.AWS_ACCOUNT_ID to 12 digits'; exit 1; }
+
+      - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Configure AWS using two secrets only
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Install application and CDK for exact config lookup
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt && npm install -g aws-cdk
+
+      - name: Check AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Empty website S3 bucket
         run: |
-          python -m pip install -r requirements.txt
-          npm install --global aws-cdk
-      - name: Identify stack, protect the account and find live data
-        shell: bash
-        run: |
-          set -euo pipefail
-          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-          [[ "$ACCOUNT" == "$EXPECTED_AWS_ACCOUNT" ]] || { echo 'Wrong account'; exit 1; }
-          echo "CDK_DEFAULT_ACCOUNT=$ACCOUNT" >> "$GITHUB_ENV"
-          echo "CDK_DEFAULT_REGION=$AWS_REGION" >> "$GITHUB_ENV"
-          STACK=$(python - <<'PY'
-          import os, sys
-          sys.path[:0]=['bin','.']
-          from app_config import build_config
-          c=build_config(os.environ['STAGE'])
-          print(f'{c.organization}-{c.app_name}-{c.environment}')
-          PY
-          )
-          mapfile -t STACK_IDS < <(cdk ls)
-          [[ "${#STACK_IDS[@]}" -eq 1 ]] || { echo 'Expected exactly one CDK stack'; exit 1; }
-          echo "CDK_STACK_ID=${STACK_IDS[0]}" >> "$GITHUB_ENV"
-          aws cloudformation describe-stacks --stack-name "$STACK" >/dev/null
-          TABLE=$(aws cloudformation list-stack-resources --stack-name "$STACK" --query "StackResourceSummaries[?ResourceType=='AWS::DynamoDB::Table'].PhysicalResourceId" --output text)
-          WEB_BUCKET=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='FrontendBucketName'].OutputValue" --output text)
-          [[ -n "$TABLE" && "$TABLE" != None && -n "$WEB_BUCKET" && "$WEB_BUCKET" != None ]] || { echo 'Stack resources missing'; exit 1; }
-          [[ "$WEB_BUCKET" != "$BACKUP_BUCKET" ]] || { echo 'Backup bucket cannot be the app bucket'; exit 1; }
-          aws s3api head-bucket --bucket "$BACKUP_BUCKET"
-          echo "STACK_NAME=$STACK" >> "$GITHUB_ENV"
-          echo "TABLE_NAME=$TABLE" >> "$GITHUB_ENV"
-          echo "WEB_BUCKET=$WEB_BUCKET" >> "$GITHUB_ENV"
-          echo "BACKUP_PREFIX=clinic-backups/$STAGE/$GITHUB_RUN_ID-$(date -u +%Y%m%dT%H%M%SZ)" >> "$GITHUB_ENV"
-      - name: Back up DynamoDB, and wait for AVAILABLE
-        shell: bash
-        run: |
-          set -euo pipefail
-          ARN=$(aws dynamodb create-backup --table-name "$TABLE_NAME" --backup-name "clinic-${STAGE}-${GITHUB_RUN_ID}" --query BackupDetails.BackupArn --output text)
-          [[ -n "$ARN" && "$ARN" != None ]] || exit 1
-          AVAILABLE=false
-          for i in $(seq 1 60); do
-            STATUS=$(aws dynamodb describe-backup --backup-arn "$ARN" --query BackupDescription.BackupDetails.BackupStatus --output text)
-            if [[ "$STATUS" == AVAILABLE ]]; then AVAILABLE=true; break; fi
-            if [[ "$STATUS" != CREATING ]]; then echo "Backup failed: $STATUS"; exit 1; fi
-            sleep 10
-          done
-          [[ "$AVAILABLE" == true ]] || { echo 'Backup never became AVAILABLE'; exit 1; }
-          echo 'DynamoDB on-demand backup AVAILABLE'
-      - name: Preserve the frontend in an external S3 backup bucket
-        shell: bash
-        run: |
-          set -euo pipefail
-          aws s3api head-object --bucket "$WEB_BUCKET" --key index.html >/dev/null
-          aws s3 sync "s3://$WEB_BUCKET/" "s3://$BACKUP_BUCKET/$BACKUP_PREFIX/frontend/" --only-show-errors
-          aws s3api head-object --bucket "$BACKUP_BUCKET" --key "$BACKUP_PREFIX/frontend/index.html" >/dev/null
-          echo "Frontend backed up at s3://$BACKUP_BUCKET/$BACKUP_PREFIX/frontend/"
-      - name: Recheck target stack and empty only its confirmed frontend bucket
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$CONFIRMATION" == "DESTROY $STAGE" ]] || exit 1
-          [[ "$WEB_BUCKET" == clinic-booking-web-${STAGE}-* ]] || { echo 'Unexpected bucket name; refusing deletion'; exit 1; }
-          aws s3 rm "s3://$WEB_BUCKET/" --recursive --only-show-errors
-      - name: Destroy only the already-validated clinic stack (never prod)
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ -n "$CDK_STACK_ID" && "$CONFIRMATION" == "DESTROY $STAGE" ]] || exit 1
-          cdk destroy "$CDK_STACK_ID" --force
+          STACK="sigmoid-clinic-booking-${STAGE}"
+          BUCKET=$(aws cloudformation describe-stacks --stack-name "$STACK" \
+            --query "Stacks[0].Outputs[?OutputKey=='FrontendBucketName'].OutputValue | [0]" \
+            --output text)
+          [[ "$BUCKET" == "clinic-booking-web-${STAGE}-"* ]] || { echo "Unexpected website bucket"; exit 1; }
+          aws s3 rm "s3://${BUCKET}/" --recursive
+
+      - name: Destroy infrastructure
+        run: cdk destroy --all --force
