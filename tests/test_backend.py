@@ -214,13 +214,24 @@ def put_item_for(aws, day: str) -> None:
     }
 
 
-def test_daily_reminder_only_covers_tomorrow_and_only_once(aws) -> None:
-    put_item_for(aws, day_in(1))
+def test_daily_reminder_only_covers_tomorrow_and_only_once(
+    aws, monkeypatch
+) -> None:
+    # Use a fixed Monday so tomorrow is a valid clinic working day.
+    fixed_now = datetime(2026, 11, 16, 9, 0, tzinfo=IST)
+    monkeypatch.setattr(aws.app, "_now", lambda: fixed_now)
+
+    tomorrow = (fixed_now + timedelta(days=1)).date().isoformat()
+    put_item_for(aws, tomorrow)
+
+    # First execution sends one reminder.
     result = aws.app.daily_reminder({}, None)
+    assert result["date"] == tomorrow
     assert result["reminders"] == 1
+
+    # Repeated execution must not send another reminder.
     assert aws.app.daily_reminder({}, None)["reminders"] == 0
     assert len(aws.ses.sent) == 1
-
 
 def test_daily_reminder_ignores_other_days(aws) -> None:
     put_item_for(aws, day_in(2))
