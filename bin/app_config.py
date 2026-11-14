@@ -16,9 +16,9 @@ from sigmoid_cdk.configs import (
     IndexConfig,
     LambdaConfig,
     QueueConfig,
+    ResourceConfig,
     S3Config,
     TableConfig,
-    WebAppConfig,
 )
 
 # --- Application identity ---
@@ -28,6 +28,8 @@ COST_CENTER = "cc-100"
 BUCKET_SUFFIX = os.getenv("BUCKET_SUFFIX", "demo")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "").strip() or "clinic@example.com"
 HOLIDAY_DATES = os.getenv("CLINIC_HOLIDAYS", "").strip()
+
+
 
 # --- Extra S3 buckets (optional) ---
 # Example: ADDITIONAL_BUCKETS = ("reports", "private-assets")
@@ -41,26 +43,21 @@ DEFAULT_MEMORY_MB = 256
 DEFAULT_TIMEOUT_SECONDS = 20
 
 # Different functions may use different runtimes when compatible code exists.
-# E.g. {"book-slot": "PYTHON_3_13"}; Python handlers cannot run on Node.js.
-LAMBDA_RUNTIMES: dict[str, str] = {}
-LAMBDA_SOURCES: dict[str, str] = {}  # for different language/source packages
-LAMBDA_HANDLERS: dict[str, str] = {}  # full handler, e.g. index.handler
+
+LAMBDA_RUNTIMES: dict[str, str] = {   
+    # "node-reports": "NODEJS_22_X",
+    # "java-reports": "JAVA_21",
+}
+LAMBDA_SOURCES: dict[str, str] = { 
+    # "node-reports": "src/node-reports",
+    # "java-reports": "src/java-reports/dist",
+}  # for different language/source packages
 
 
+LAMBDA_HANDLERS: dict[str, str] = {
 
-# LAMBDA_RUNTIMES = {
-#     "java-reports": "JAVA_21",
-# }
-
-# LAMBDA_SOURCES = {
-#     "java-reports": "src/java-reports/dist",
-# }
-
-# LAMBDA_HANDLERS = {
-#     "java-reports": "com.example.Handler::handleRequest",
-# }
-
-
+    # "node-reports": "index.handler",
+}  # full handler, e.g. index.handler
 
 
 
@@ -100,7 +97,7 @@ def create_lambda(
     )
 
 
-def build_config(stage: str) -> WebAppConfig:
+def build_config(stage: str) -> ResourceConfig:
     """Build the infrastructure description; no AWS calls are made here."""
     if stage not in {"dev", "staging", "prod"}:
         raise ValueError("STAGE must be dev, staging or prod")
@@ -109,25 +106,34 @@ def build_config(stage: str) -> WebAppConfig:
     for holiday in HOLIDAY_DATES.split(","):
         if holiday.strip():
             date.fromisoformat(holiday.strip())
+
     for purpose in ADDITIONAL_BUCKETS:
         if not re.fullmatch(r"[a-z][a-z0-9-]{1,22}", purpose):
             raise ValueError(f"Invalid additional S3 bucket purpose: {purpose!r}")
 
-    return WebAppConfig(
+    return ResourceConfig(
         app_name=APP_NAME,
         environment=stage,
         owner_team=OWNER_TEAM,
         cost_center=COST_CENTER,
+
         frontend_bucket=S3Config(
             bucket_name=f"{APP_NAME}-web-{stage}-{BUCKET_SUFFIX}"
         ),
         extra_buckets=[
             S3Config(bucket_name=f"{APP_NAME}-{purpose}-{stage}-{BUCKET_SUFFIX}")
+    
             for purpose in ADDITIONAL_BUCKETS
         ],
+
+
+
         cloudfront=CloudFrontConfig(
             api_name="clinic-api", default_root_object="index.html"
         ),
+
+
+
         tables=[
             TableConfig(
                 table_name="bookings",
@@ -148,6 +154,8 @@ def build_config(stage: str) -> WebAppConfig:
             create_lambda("notify-worker", "notify_worker", email=True, timeout=30),
             # daily_reminder() sends mail itself; it needs SES permission too.
             create_lambda("daily-reminder", "daily_reminder", email=True, timeout=60),
+
+            # create_lambda("node-reports", "handler"),
         ],
         api_gateways=[
             ApiGatewayConfig(
