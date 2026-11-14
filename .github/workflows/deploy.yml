@@ -1,3 +1,4 @@
+
 name: Deploy Clinic Booking
 
 on:
@@ -20,6 +21,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: ${{ inputs.stage }}
+
     env:
       STAGE: ${{ inputs.stage }}
       AWS_REGION: ap-southeast-2
@@ -28,37 +30,102 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       BUCKET_SUFFIX: ${{ vars.BUCKET_SUFFIX || 'demo' }}
       SENDER_EMAIL: ${{ vars.SENDER_EMAIL }}
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+    steps:
+      # 1. Checkout Clinic Booking application
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Configure Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.14'
 
-      - uses: actions/setup-node@v4
+      # 3. Configure Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt && npm install -g aws-cdk
+      # 4. Configure GitHub SSH host verification
+      - name: Configure GitHub SSH host
+        run: |
+          install -d -m 700 "$HOME/.ssh"
 
+          printf '%s\n' \
+            'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+            >> "$HOME/.ssh/known_hosts"
+
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      # 5. Load read-only private framework deploy key
+      - name: Authenticate private sigmoid-cdk framework
+        uses: webfactory/ssh-agent@v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.SIGMOID_CDK_DEPLOY_KEY }}
+
+      # 6. Verify access to the private repository and release
+      - name: Verify private framework access
+        run: |
+          git ls-remote --exit-code \
+            git@github.com:prakashh63/sigmoid_cdk.git \
+            refs/tags/v0.1.0
+
+      # 7. Install application and CDK dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          npm install --global aws-cdk
+
+      # 8. Verify installed framework
+      - name: Verify sigmoid-cdk installation
+        run: |
+          python - <<'PY'
+          from importlib.metadata import version
+          from sigmoid_cdk import SigmoidApp
+          from sigmoid_cdk.configs import ResourceConfig
+
+          installed = version("sigmoid-cdk")
+          print("Framework version:", installed)
+          assert installed == "0.1.0"
+          print("Private framework import: PASS")
+          PY
+
+      # 9. Verify AWS credentials
       - name: Check AWS identity
         run: aws sts get-caller-identity
 
+      # 10. Deploy infrastructure
       - name: Deploy infrastructure
         run: cdk deploy --all --require-approval never
 
+      # 11. Upload frontend to S3
       - name: Upload frontend to S3
-        run: aws s3 sync src/frontend/ "s3://clinic-booking-web-${STAGE}-${BUCKET_SUFFIX}/"
+        run: |
+          aws s3 sync \
+            src/frontend/ \
+            "s3://clinic-booking-web-${STAGE}-${BUCKET_SUFFIX}/"
 
+      # 12. Invalidate CloudFront cache
       - name: Invalidate CloudFront cache
         run: |
           DIST_ID=$(aws cloudformation describe-stack-resources \
             --stack-name "sigmoid-clinic-booking-${STAGE}" \
             --query "StackResources[?ResourceType=='AWS::CloudFront::Distribution'].PhysicalResourceId" \
             --output text)
-          aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"
 
+          if [[ -z "$DIST_ID" || "$DIST_ID" == "None" ]]; then
+            echo "CloudFront distribution not found"
+            exit 1
+          fi
+
+          aws cloudfront create-invalidation \
+            --distribution-id "$DIST_ID" \
+            --paths "/*"
+
+      # 13. Show deployed website URL
       - name: Show site URL
         run: |
           aws cloudformation describe-stacks \

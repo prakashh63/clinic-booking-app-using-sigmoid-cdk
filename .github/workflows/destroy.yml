@@ -1,3 +1,4 @@
+
 name: Destroy Clinic Booking
 
 on:
@@ -8,6 +9,7 @@ on:
         type: choice
         options: [dev, staging]
         required: true
+
       confirmation:
         description: Type DESTROY dev or DESTROY staging
         type: string
@@ -24,6 +26,7 @@ jobs:
   destroy:
     runs-on: ubuntu-latest
     environment: ${{ inputs.stage }}
+
     env:
       STAGE: ${{ inputs.stage }}
       CONFIRMATION: ${{ inputs.confirmation }}
@@ -32,36 +35,114 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       BUCKET_SUFFIX: ${{ vars.BUCKET_SUFFIX || 'demo' }}
+      SENDER_EMAIL: ${{ vars.SENDER_EMAIL }}
+
     steps:
+      # 1. Validate destruction authorization
       - name: Confirm destruction
         run: |
-          [[ "$CONFIRMATION" == "DESTROY $STAGE" ]] || { echo "Incorrect confirmation"; exit 1; }
-          [[ "$STAGE" == dev || "$STAGE" == staging ]] || exit 1
+          if [[ "$CONFIRMATION" != "DESTROY $STAGE" ]]; then
+            echo "Incorrect destruction confirmation"
+            exit 1
+          fi
 
-      - uses: actions/checkout@v4
+          if [[ "$STAGE" != "dev" && "$STAGE" != "staging" ]]; then
+            echo "Destruction is restricted to dev and staging"
+            exit 1
+          fi
 
-      - uses: actions/setup-python@v5
+          echo "Destruction confirmed for stage: $STAGE"
+
+      # 2. Checkout Clinic Booking application
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 3. Configure Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.14'
 
-      - uses: actions/setup-node@v4
+      # 4. Configure Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt && npm install -g aws-cdk
+      # 5. Configure GitHub SSH host verification
+      - name: Configure GitHub SSH host
+        run: |
+          install -d -m 700 "$HOME/.ssh"
 
+          printf '%s\n' \
+            'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+            >> "$HOME/.ssh/known_hosts"
+
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      # 6. Load read-only private framework deploy key
+      - name: Authenticate private sigmoid-cdk framework
+        uses: webfactory/ssh-agent@v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.SIGMOID_CDK_DEPLOY_KEY }}
+
+      # 7. Verify private repository access
+      - name: Verify private framework access
+        run: |
+          git ls-remote --exit-code \
+            git@github.com:prakashh63/sigmoid_cdk.git \
+            refs/tags/v0.1.0
+
+      # 8. Install application and CDK dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          npm install --global aws-cdk
+
+      # 9. Verify installed framework
+      - name: Verify sigmoid-cdk installation
+        run: |
+          python - <<'PY'
+          from importlib.metadata import version
+          from sigmoid_cdk import SigmoidApp
+          from sigmoid_cdk.configs import ResourceConfig
+
+          installed = version("sigmoid-cdk")
+          print("Framework version:", installed)
+          assert installed == "0.1.0"
+          print("Private framework import: PASS")
+          PY
+
+      # 10. Verify AWS credentials
       - name: Check AWS identity
         run: aws sts get-caller-identity
 
+      # 11. Verify website bucket belongs to selected stage
+      # WARNING: The following steps permanently delete
+      # website objects and destroy the selected stack.
       - name: Empty website S3 bucket
         run: |
           STACK="sigmoid-clinic-booking-${STAGE}"
-          BUCKET=$(aws cloudformation describe-stacks --stack-name "$STACK" \
+
+          BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK" \
             --query "Stacks[0].Outputs[?OutputKey=='FrontendBucketName'].OutputValue | [0]" \
             --output text)
-          [[ "$BUCKET" == "clinic-booking-web-${STAGE}-"* ]] || { echo "Unexpected website bucket"; exit 1; }
+
+          if [[ -z "$BUCKET" || "$BUCKET" == "None" ]]; then
+            echo "Frontend bucket was not found"
+            exit 1
+          fi
+
+          if [[ "$BUCKET" != "clinic-booking-web-${STAGE}-"* ]]; then
+            echo "Unexpected website bucket: $BUCKET"
+            exit 1
+          fi
+
+          echo "Emptying website bucket for stage: $STAGE"
           aws s3 rm "s3://${BUCKET}/" --recursive
 
+      # 12. Destroy selected infrastructure
       - name: Destroy infrastructure
         run: cdk destroy --all --force
