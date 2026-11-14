@@ -1,4 +1,4 @@
-sigmoid-cdk @ git+https://github.com/prakashh63/sigmoid_cdk.git@v0.1.0
+sigmoid-cdk @ git+ssh://git@github.com/prakashh63/sigmoid_cdk.git@v0.1.0
 aws-cdk-lib==2.275.0
 cdk-nag>=2.34,<3
 boto3>=1.35,<2

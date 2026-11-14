@@ -1,3 +1,4 @@
+
 name: CI — test and audit CDK
 
 on:
@@ -10,34 +11,96 @@ permissions:
 
 jobs:
   check:
+    # Private repository secrets are unavailable to fork PRs.
+    # Skip untrusted fork PRs rather than exposing credentials.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
     env:
       STAGE: dev
       BUCKET_SUFFIX: cidemo
       SENDER_EMAIL: clinic@example.com
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # 1. Checkout Clinic Booking
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Setup Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.14'
-      - uses: actions/setup-node@v4
+
+      # 3. Setup Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      # 4. Add GitHub's official SSH host key
+      - name: Configure GitHub SSH host
+        run: |
+          install -d -m 700 "$HOME/.ssh"
+
+          printf '%s\n' \
+            'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+            >> "$HOME/.ssh/known_hosts"
+
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      # 5. Authenticate to private sigmoid_cdk
+      - name: Authenticate private framework
+        uses: webfactory/ssh-agent@v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.SIGMOID_CDK_DEPLOY_KEY }}
+
+      # 6. Verify read access and release tag
+      - name: Verify private framework access
+        run: |
+          git ls-remote --exit-code \
+            git@github.com:prakashh63/sigmoid_cdk.git \
+            refs/tags/v0.1.0
+
+      # 7. Install project dependencies
       - name: Install Python and CDK dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest
           npm install --global aws-cdk
+
+      # 8. Verify that private package is installed
+      - name: Verify sigmoid-cdk installation
+        run: |
+          python - <<'PY'
+          from importlib.metadata import version
+          from sigmoid_cdk import SigmoidApp
+          from sigmoid_cdk.configs import ResourceConfig
+
+          installed_version = version("sigmoid-cdk")
+          print("Framework version:", installed_version)
+          assert installed_version == "0.1.0"
+          print("Private framework import: PASS")
+          PY
+
+      # 9. Check runtime versions and syntax
       - name: Check versions and Python/JavaScript syntax
         run: |
           python --version
           node --version
           python -m compileall -q bin src tests tools scripts
           node --check src/frontend/assets/app.js
+
+      # 10. Run application and infrastructure tests
       - name: Test business logic and infrastructure config
         run: python -m pytest -q
+
+      # 11. Synthesize CloudFormation
       - name: Synthesize (no AWS deployment)
         run: cdk synth --quiet
+
+      # 12. Audit synthesized infrastructure
       - name: Review inputs against cdk.out
         run: python scripts/review_cdk_output.py --stage dev
